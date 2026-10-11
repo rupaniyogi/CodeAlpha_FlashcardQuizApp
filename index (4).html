@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashcard Quiz App</title>
+<style>
+:root{--bg:#f4f5fb;--card:#fff;--text:#1f2430;--muted:#6b7280;--accent:#4f46e5;--on-accent:#fff;--border:#e3e5ee;--danger:#dc2626;--answer:#ecfdf5;--answer-text:#065f46}
+@media (prefers-color-scheme:dark){:root{--bg:#12141b;--card:#1c1f2a;--text:#eef0f6;--muted:#9aa0b0;--accent:#818cf8;--on-accent:#12141b;--border:#2d3140;--danger:#f87171;--answer:#12302a;--answer-text:#a7f3d0}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;justify-content:center;padding:24px 16px}
+.app{width:100%;max-width:560px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px;font-size:.95rem}
+.bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.bar>div{height:100%;background:var(--accent);transition:width .25s}
+.count{color:var(--muted);font-size:.85rem;margin-bottom:12px;text-align:right}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px 24px;min-height:240px;display:flex;flex-direction:column;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+.label{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}
+.q{font-size:1.35rem;font-weight:600;line-height:1.4;word-break:break-word}
+.a{margin-top:18px;padding:14px 16px;border-radius:10px;background:var(--answer);color:var(--answer-text);font-size:1.1rem;line-height:1.4;word-break:break-word}
+.row{display:flex;gap:10px;margin-top:14px}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);padding:10px 14px}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+button.danger{color:var(--danger)}
+.row>button{flex:1}
+.tools{display:flex;gap:10px;margin-top:22px;padding-top:18px;border-top:1px solid var(--border)}
+.tools button{flex:1;font-size:.9rem}
+.empty{text-align:center;color:var(--muted)}
+dialog{border:1px solid var(--border);border-radius:14px;background:var(--card);color:var(--text);width:min(92vw,460px);padding:22px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog h2{margin:0 0 14px;font-size:1.15rem}
+label{display:block;font-size:.85rem;color:var(--muted);margin:10px 0 4px}
+textarea{width:100%;font:inherit;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);resize:vertical;min-height:70px}
+.err{color:var(--danger);font-size:.85rem;min-height:1.2em;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>📚 Flashcard Quiz</h1>
+  <p class="sub">Study with your own cards. Use ← → keys to move, Space to flip.</p>
+
+  <div class="bar"><div id="progress"></div></div>
+  <div class="count" id="count"></div>
+
+  <div class="card" id="card"></div>
+
+  <div class="row">
+    <button id="prev">← Previous</button>
+    <button id="show" class="primary">Show Answer</button>
+    <button id="next">Next →</button>
+  </div>
+
+  <div class="tools">
+    <button id="add">＋ Add</button>
+    <button id="edit">✎ Edit</button>
+    <button id="del" class="danger">🗑 Delete</button>
+  </div>
+</div>
+
+<dialog id="dlg">
+  <h2 id="dlgTitle">Add flashcard</h2>
+  <label for="qIn">Question (front)</label>
+  <textarea id="qIn"></textarea>
+  <label for="aIn">Answer (back)</label>
+  <textarea id="aIn"></textarea>
+  <div class="err" id="err"></div>
+  <div class="row">
+    <button id="cancel">Cancel</button>
+    <button id="save" class="primary">Save</button>
+  </div>
+</dialog>
+
+<script>
+const KEY = "flashcards_v1";
+const defaults = [
+  {q:"What is the capital of France?", a:"Paris"},
+  {q:"What does HTML stand for?", a:"HyperText Markup Language"},
+  {q:"What is 12 × 12?", a:"144"},
+  {q:"Which planet is known as the Red Planet?", a:"Mars"}
+];
+let cards = [], idx = 0, shown = false, editing = false;
+
+function load(){
+  try{ const raw = localStorage.getItem(KEY); if(raw){ const p = JSON.parse(raw); if(Array.isArray(p)) return p; } }catch(e){}
+  return defaults.slice();
+}
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(cards)); }catch(e){} }
+
+const $ = id => document.getElementById(id);
+
+function render(){
+  const n = cards.length, card = $("card");
+  card.innerHTML = "";
+  if(!n){
+    card.className = "card empty";
+    card.textContent = "No flashcards yet. Click “Add” to create your first one.";
+  } else {
+    card.className = "card";
+    const l = document.createElement("div"); l.className = "label"; l.textContent = "Question";
+    const q = document.createElement("div"); q.className = "q"; q.textContent = cards[idx].q;
+    card.append(l, q);
+    if(shown){
+      const a = document.createElement("div"); a.className = "a"; a.textContent = cards[idx].a;
+      card.append(a);
+    }
+  }
+  $("count").textContent = n ? `Card ${idx+1} of ${n}` : "0 cards";
+  $("progress").style.width = n ? ((idx+1)/n*100) + "%" : "0%";
+  $("show").textContent = shown ? "Hide Answer" : "Show Answer";
+  $("prev").disabled = !n || idx === 0;
+  $("next").disabled = !n || idx === n-1;
+  $("show").disabled = $("edit").disabled = $("del").disabled = !n;
+}
+
+function go(d){ const i = idx + d; if(i < 0 || i >= cards.length) return; idx = i; shown = false; render(); }
+function toggle(){ if(!cards.length) return; shown = !shown; render(); }
+
+function openDlg(isEdit){
+  editing = isEdit;
+  $("dlgTitle").textContent = isEdit ? "Edit flashcard" : "Add flashcard";
+  $("qIn").value = isEdit ? cards[idx].q : "";
+  $("aIn").value = isEdit ? cards[idx].a : "";
+  $("err").textContent = "";
+  $("dlg").showModal();
+  $("qIn").focus();
+}
+function saveCard(){
+  const q = $("qIn").value.trim(), a = $("aIn").value.trim();
+  if(!q || !a){ $("err").textContent = "Both question and answer are required."; return; }
+  if(editing){ cards[idx] = {q, a}; }
+  else { cards.push({q, a}); idx = cards.length - 1; }
+  shown = false; save(); $("dlg").close(); render();
+}
+function delCard(){
+  if(!cards.length || !confirm("Delete this flashcard?")) return;
+  cards.splice(idx, 1);
+  if(idx >= cards.length) idx = Math.max(0, cards.length - 1);
+  shown = false; save(); render();
+}
+
+$("prev").onclick = () => go(-1);
+$("next").onclick = () => go(1);
+$("show").onclick = toggle;
+$("add").onclick = () => openDlg(false);
+$("edit").onclick = () => openDlg(true);
+$("del").onclick = delCard;
+$("cancel").onclick = () => $("dlg").close();
+$("save").onclick = saveCard;
+document.addEventListener("keydown", e => {
+  if($("dlg").open) return;
+  if(e.key === "ArrowLeft") go(-1);
+  else if(e.key === "ArrowRight") go(1);
+  else if(e.key === " "){ e.preventDefault(); toggle(); }
+});
+
+cards = load();
+render();
+</script>
+</body>
+</html>
